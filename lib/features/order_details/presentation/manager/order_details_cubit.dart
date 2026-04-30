@@ -57,6 +57,7 @@ class OrderDetailsCubit extends Cubit<OrderDetailsState> {
   Timer? _assignmentPollingTimer;
   String? _activeAssignmentId;
   String? _activeOrderId;
+  DateTime? _lastAssignmentUpdateAt;
 
   Future<bool> doIntent(OrderDetailsEvent event) async {
     switch (event) {
@@ -241,6 +242,15 @@ class OrderDetailsCubit extends Cubit<OrderDetailsState> {
       if (orderIdValue.isEmpty || orderIdValue != _activeOrderId) return;
       final assignmentIdValue = _activeAssignmentId;
       if (assignmentIdValue == null) return;
+
+      // Skip redundant GET if ReceiveAssignmentUpdated already applied the update
+      final lastUpdate = _lastAssignmentUpdateAt;
+      if (lastUpdate != null &&
+          DateTime.now().difference(lastUpdate).inSeconds < 2) {
+        _log('Order status event skipped: ReceiveAssignmentUpdated already applied recently');
+        return;
+      }
+
       _log('Order status matched active order; reloading assignment details');
       unawaited(_loadAssignmentDetails(assignmentIdValue, silent: true));
       unawaited(_refreshDriverHomeUseCase.call());
@@ -284,6 +294,7 @@ class OrderDetailsCubit extends Cubit<OrderDetailsState> {
           '(status=${entity.assignmentStatus}, actions=${entity.allowedActions})',
         );
         emit(state.copyWith(details: entity, isLoading: false));
+        _lastAssignmentUpdateAt = DateTime.now();
         unawaited(_refreshDriverHomeUseCase.call());
       } catch (error) {
         _log('Failed to parse assignment updated payload: $error. Falling back to GET.');
